@@ -1,15 +1,17 @@
+#!/usr/bin/env python3
 """
-CSV文件处理器
+CSV处理器 - 改进的CSV解析功能
 """
-import re
 import csv
 import io
-from typing import List, Tuple, Dict, Any
+import re
+from typing import List, Tuple, Optional
 
 class CSVProcessor:
     """CSV处理器"""
     
-    def parse_csv(self, csv_content: str) -> List[Tuple[str, int]]:
+    @staticmethod
+    def parse_csv(csv_content: str) -> List[Tuple[str, int]]:
         """
         解析CSV内容，提取IP和端口
         
@@ -24,21 +26,36 @@ class CSVProcessor:
         
         ip_port_pairs = []
         
+        # 方法1: 尝试标准CSV解析
         try:
-            # 尝试标准CSV解析
-            reader = csv.reader(io.StringIO(csv_content))
-            for row in reader:
-                if not row:
+            # 尝试检测编码
+            lines = csv_content.splitlines()
+            
+            # 尝试不同的分隔符
+            for delimiter in [',', ';', '\t', ' ']:
+                try:
+                    reader = csv.reader(io.StringIO(csv_content), delimiter=delimiter)
+                    for row in reader:
+                        if not row:
+                            continue
+                        
+                        # 尝试从行中提取IP和端口
+                        ip, port = CSVProcessor._extract_ip_port_from_row(row)
+                        if ip:
+                            ip_port_pairs.append((ip, port))
+                    
+                    if ip_port_pairs:
+                        print(f"✅ 使用分隔符 '{delimiter}' 成功解析CSV")
+                        break
+                except:
                     continue
-                
-                # 尝试从行中提取IP和端口
-                ip, port = self._extract_ip_port_from_row(row)
-                if ip:
-                    ip_port_pairs.append((ip, port))
         
-        except Exception:
-            # CSV解析失败，使用正则表达式提取
-            ip_port_pairs = self._extract_with_regex(csv_content)
+        except Exception as e:
+            print(f"⚠️ CSV标准解析失败: {e}")
+        
+        # 方法2: 如果标准解析失败，使用正则表达式
+        if not ip_port_pairs:
+            ip_port_pairs = CSVProcessor._extract_with_regex(csv_content)
         
         # 去重
         unique_pairs = []
@@ -49,75 +66,111 @@ class CSVProcessor:
                 seen.add(key)
                 unique_pairs.append((ip, port))
         
+        print(f"📊 从CSV中提取到 {len(unique_pairs)} 个IP:端口对")
+        if unique_pairs:
+            print(f"示例: {unique_pairs[0]}")
+        
         return unique_pairs
     
-    def _extract_ip_port_from_row(self, row: List[str]) -> Tuple[str, int]:
+    @staticmethod
+    def _extract_ip_port_from_row(row: List[str]) -> Tuple[Optional[str], Optional[int]]:
         """从CSV行中提取IP和端口"""
-        import re
         from config import config
         
-        ip_pattern = r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b'
-        port_pattern = r'\b(\d{1,5})\b'
-        
-        ip = ""
-        port = config.DEFAULT_PORT
+        ip = None
+        port = None
         
         for cell in row:
-            if not cell:
+            if not cell or not isinstance(cell, str):
                 continue
             
-            # 查找IP地址
-            ip_match = re.search(ip_pattern, cell)
-            if ip_match and not ip:
-                ip = ip_match.group(0)
+            cell = cell.strip()
             
-            # 查找端口 (在1-65535之间)
-            port_matches = re.findall(port_pattern, cell)
-            for port_str in port_matches:
-                port_int = int(port_str)
-                if 1 <= port_int <= 65535 and port == config.DEFAULT_PORT:
+            # 检查是否是 IP:端口 格式
+            if ':' in cell:
+                parts = cell.split(':')
+                if len(parts) == 2:
+                    potential_ip = parts[0].strip()
+                    potential_port = parts[1].strip()
+                    
+                    if CSVProcessor._is_valid_ip(potential_ip):
+                        ip = potential_ip
+                        try:
+                            port_int = int(potential_port)
+                            if 1 <= port_int <= 65535:
+                                port = port_int
+                        except:
+                            pass
+                    
+                    if ip and port:
+                        return ip, port
+            
+            # 检查是否是独立IP
+            if CSVProcessor._is_valid_ip(cell):
+                ip = cell
+            
+            # 检查是否是独立端口
+            try:
+                port_int = int(cell)
+                if 1 <= port_int <= 65535:
                     port = port_int
+            except:
+                pass
+        
+        # 如果没有找到端口，使用默认端口
+        if ip and not port:
+            port = config.DEFAULT_PORT
         
         return ip, port
     
-    def _extract_with_regex(self, text: str) -> List[Tuple[str, int]]:
+    @staticmethod
+    def _extract_with_regex(text: str) -> List[Tuple[str, int]]:
         """使用正则表达式从文本中提取IP和端口"""
         from config import config
         
         ip_port_pairs = []
         
+        # 匹配多种格式:
+        # 1. IP:端口
+        # 2. IP,端口
+        # 3. IP 端口
+        # 4. IP;端口
+        
+        # 替换常见分隔符为冒号，便于统一处理
+        normalized = text.replace(',', ':').replace(';', ':').replace('\t', ':')
+        normalized = re.sub(r'\s+', ':', normalized)
+        
         # 匹配 IP:端口 格式
-        pattern1 = r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5})'
-        matches1 = re.findall(pattern1, text)
+        pattern = r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5})'
+        matches = re.findall(pattern, normalized)
         
-        for ip, port_str in matches1:
-            if self._is_valid_ip(ip):
-                port = int(port_str)
-                if 1 <= port <= 65535:
-                    ip_port_pairs.append((ip, port))
+        for ip, port_str in matches:
+            if CSVProcessor._is_valid_ip(ip):
+                try:
+                    port = int(port_str)
+                    if 1 <= port <= 65535:
+                        ip_port_pairs.append((ip, port))
+                except:
+                    continue
         
-        # 匹配 IP 端口 格式 (空格分隔)
-        pattern2 = r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d{1,5})'
-        matches2 = re.findall(pattern2, text)
-        
-        for ip, port_str in matches2:
-            if self._is_valid_ip(ip):
-                port = int(port_str)
-                if 1 <= port <= 65535:
-                    ip_port_pairs.append((ip, port))
-        
-        # 只匹配IP (使用默认端口)
-        pattern3 = r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b'
-        matches3 = re.findall(pattern3, text)
-        
-        for ip in matches3:
-            if self._is_valid_ip(ip) and not any(ip == existing_ip for existing_ip, _ in ip_port_pairs):
-                ip_port_pairs.append((ip, config.DEFAULT_PORT))
+        # 如果还没有找到，尝试更宽松的匹配
+        if not ip_port_pairs:
+            # 匹配独立的IP地址
+            ip_pattern = r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b'
+            ip_matches = re.findall(ip_pattern, text)
+            
+            for ip in ip_matches:
+                if CSVProcessor._is_valid_ip(ip):
+                    ip_port_pairs.append((ip, config.DEFAULT_PORT))
         
         return ip_port_pairs
     
-    def _is_valid_ip(self, ip: str) -> bool:
+    @staticmethod
+    def _is_valid_ip(ip: str) -> bool:
         """验证IP地址有效性"""
+        if not ip or not isinstance(ip, str):
+            return False
+        
         parts = ip.split('.')
         if len(parts) != 4:
             return False
@@ -125,10 +178,9 @@ class CSVProcessor:
         for part in parts:
             if not part.isdigit():
                 return False
+            
             num = int(part)
             if num < 0 or num > 255:
-                return False
-            if len(part) > 1 and part[0] == '0':
                 return False
         
         return True

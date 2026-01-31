@@ -1,0 +1,65 @@
+name: Daily Vless Automation
+
+on:
+  schedule:
+    # 每天凌晨2点运行 (UTC时间)
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      reason:
+        description: '手动触发原因'
+        required: false
+        default: '手动执行'
+
+jobs:
+  vless-automation:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    
+    - name: 设置Python环境
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: 安装依赖
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: 运行Vless自动化
+      env:
+        GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        GITHUB_REPO: DaiZhouHui/CustomNode
+        GITHUB_BRANCH: main
+        CSV_SOURCE_DIR: f_node
+        CSV_FILENAME: results.csv
+        OUTPUT_NODE_FILE: AutoNode
+        OUTPUT_YAML_FILE: AutoNode.yaml
+        UUID: 471a8e64-7b21-4703-b1d1-45a221098459
+        HOST: knny.dpdns.org
+        SNI: knny.dpdns.org
+        FINGERPRINT: chrome
+        DEFAULT_PORT: 443
+        FORCE_PORT_443: true
+        REMARKS_PREFIX: 自选
+        CUSTOM_PATH: "/?ed=2048"
+        MAX_DAYS_TO_KEEP: 10
+        AUTO_DELETE_OLD_NODES: true
+        REQUEST_TIMEOUT: 30
+        MAX_RETRIES: 3
+      run: |
+        python main.py
+    
+    - name: 上传日志
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: automation-logs
+        path: |
+          logs/
+        retention-days: 7
