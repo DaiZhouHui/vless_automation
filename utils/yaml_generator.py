@@ -118,9 +118,44 @@ class YamlGenerator:
     def _build_yaml_content(proxies: List[Dict], proxy_names: List[str], config) -> str:
         """构建YAML内容"""
         
+        # 如果没有代理，生成最小的有效配置
+        if not proxies:
+            return """mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+proxies: []
+proxy-groups:
+  - name: 🚀 代理
+    type: select
+    proxies: []
+rules:
+  - GEOIP,CN,DIRECT
+  - MATCH,🚀 代理
+"""
+        
+        # 清理代理名称中的特殊字符，确保YAML安全
+        safe_proxies = []
+        safe_proxy_names = []
+        
+        for proxy in proxies:
+            # 创建副本以避免修改原始数据
+            safe_proxy = proxy.copy()
+            
+            # 清理代理名称中的特殊字符
+            original_name = safe_proxy['name']
+            safe_name = "".join(c for c in original_name if c.isprintable())
+            safe_name = safe_name.replace('\n', '').replace('\r', '').strip()
+            if not safe_name:
+                safe_name = f"节点-{safe_proxy['server']}:{safe_proxy['port']}"
+            
+            safe_proxy['name'] = safe_name
+            safe_proxies.append(safe_proxy)
+            safe_proxy_names.append(safe_name)
+        
         # 代理配置部分
         proxies_yaml = ""
-        for proxy in proxies:
+        for proxy in safe_proxies:
             proxies_yaml += f"  - name: {proxy['name']}\n"
             proxies_yaml += f"    type: {proxy['type']}\n"
             proxies_yaml += f"    server: {proxy['server']}\n"
@@ -146,7 +181,7 @@ class YamlGenerator:
         
         # 代理名称列表
         proxy_names_yaml = ""
-        for name in proxy_names:
+        for name in safe_proxy_names:
             proxy_names_yaml += f"      - {name}\n"
         
         # 完整的YAML模板
@@ -181,12 +216,13 @@ dns:
       - 240.0.0.0/4
 
 proxies:
-{proxies_yaml}
+{proxies_yaml.strip()}
+
 proxy-groups:
   - name: 🚀 节点选择
     type: select
     proxies:
-{proxy_names_yaml}
+{proxy_names_yaml.strip()}
   - name: ♻️ 自动选择
     type: url-test
     url: http://www.gstatic.com/generate_204
@@ -194,7 +230,7 @@ proxy-groups:
     tolerance: 50
     lazy: true
     proxies:
-{proxy_names_yaml}
+{proxy_names_yaml.strip()}
   - name: 📲 国外媒体
     type: select
     proxies:
@@ -224,7 +260,8 @@ rules:
   - MATCH,🚀 节点选择
 """
         
-        return yaml_template
+        # 确保YAML是有效的UTF-8
+        return yaml_template.encode('utf-8', 'ignore').decode('utf-8')
     
     @staticmethod
     def _generate_empty_yaml() -> str:

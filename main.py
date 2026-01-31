@@ -129,11 +129,32 @@ class VlessAutomation:
         Returns:
             bool: 是否成功
         """
+        print(f"\n📤 准备上传文件: {file_path}")
+        print(f"提交信息: {message}")
+        print(f"内容大小: {len(content)} 字符")
+        
         # 检查文件是否已存在
         file_sha = self._get_file_sha(file_path)
         
+        # 检查内容是否为空
+        if not content or len(content.strip()) == 0:
+            print(f"⚠️ 警告: {file_path} 内容为空!")
+            if file_path.endswith('.yaml') or file_path.endswith('.yml'):
+                content = """proxies: []
+proxy-groups:
+  - name: 🚀 代理
+    type: select
+    proxies: []
+rules:
+  - MATCH,🚀 代理"""
+        
         # Base64编码内容
-        encoded_content = base64.b64encode(content.encode('utf-8')).decode('ascii')
+        try:
+            encoded_content = base64.b64encode(content.encode('utf-8')).decode('ascii')
+            print(f"Base64编码后大小: {len(encoded_content)} 字符")
+        except Exception as e:
+            print(f"❌ Base64编码失败: {e}")
+            return False
         
         data = {
             "message": message,
@@ -150,23 +171,47 @@ class VlessAutomation:
         # 上传文件
         url = f"https://api.github.com/repos/{config.GITHUB_REPO}/contents/{file_path}"
         
+        print(f"📡 请求URL: {url}")
+        
         try:
             response = self.session.put(url, json=data, timeout=self.timeout)
             
+            print(f"📡 响应状态码: {response.status_code}")
+            
             if response.status_code in [200, 201]:
                 print(f"✅ 上传成功: {file_path}")
+                response_data = response.json()
+                if "content" in response_data:
+                    print(f"📄 文件SHA: {response_data.get('content', {}).get('sha', 'N/A')}")
                 return True
             else:
-                error_data = response.json() if response.content else {}
+                error_data = {}
+                try:
+                    error_data = response.json()
+                except:
+                    error_data = {"message": response.text[:500]}
+                
                 print(f"❌ 上传失败 (HTTP {response.status_code}): {file_path}")
                 if "message" in error_data:
                     print(f"错误信息: {error_data['message']}")
+                
+                # 如果是YAML文件，尝试诊断
+                if file_path.endswith('.yaml') or file_path.endswith('.yml'):
+                    print(f"\n🔍 YAML文件上传失败诊断:")
+                    print(f"1. 内容长度: {len(content)}")
+                    print(f"2. 内容前200字符: {content[:200]}")
+                    print(f"3. 内容是否包含特殊字符: {'是' if any(ord(c) > 127 for c in content[:500]) else '否'}")
+                
                 return False
                 
+        except requests.exceptions.Timeout:
+            print(f"❌ 上传超时: {file_path}")
+            return False
         except Exception as e:
             print(f"❌ 上传异常: {e}")
+            import traceback
+            traceback.print_exc()
             return False
-    
     def _get_file_sha(self, file_path: str) -> Optional[str]:
         """获取文件的SHA值"""
         url = f"https://api.github.com/repos/{config.GITHUB_REPO}/contents/{file_path}?ref={config.GITHUB_BRANCH}"
