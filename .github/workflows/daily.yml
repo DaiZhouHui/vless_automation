@@ -46,7 +46,7 @@ jobs:
         FINGERPRINT: chrome
         DEFAULT_PORT: 443
         FORCE_PORT_443: true
-        REMARKS_PREFIX: 香港
+        REMARKS_PREFIX: 香港节点-
         CUSTOM_PATH: "/?ed=2048"
         MAX_DAYS_TO_KEEP: 10
         AUTO_DELETE_OLD_NODES: true

@@ -37,7 +37,7 @@ class Config:
         self.FINGERPRINT = os.getenv("FINGERPRINT", "chrome")
         self.DEFAULT_PORT = int(os.getenv("DEFAULT_PORT", "443"))
         self.FORCE_PORT_443 = os.getenv("FORCE_PORT_443", "true").lower() == "true"
-        self.REMARKS_PREFIX = os.getenv("REMARKS_PREFIX", "自选")
+        self.REMARKS_PREFIX = os.getenv("REMARKS_PREFIX", "香港节点-")
         self.CUSTOM_PATH = os.getenv("CUSTOM_PATH", "/?ed=2048")
         
         # 节点管理配置
