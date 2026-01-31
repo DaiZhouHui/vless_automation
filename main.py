@@ -236,16 +236,12 @@ class VlessAutomation:
         vless_link = f"vless://{config.UUID}@{ip}:{port}?{query_params}#{urllib.parse.quote(remark)}"
         
         return vless_link
-    
-    def create_double_base64(self, plain_text: str) -> str:
-        """创建双重Base64编码内容"""
-        # 第一层Base64
-        first_base64 = base64.b64encode(plain_text.encode('utf-8')).decode('ascii')
-        
-        # 第二层Base64
-        second_base64 = base64.b64encode(first_base64.encode('utf-8')).decode('ascii')
-        
-        return second_base64
+
+    def create_base64(self, plain_text: str) -> str:
+        """创建Base64编码内容（单层）"""
+        # 只进行一次Base64编码
+        encoded_content = base64.b64encode(plain_text.encode('utf-8')).decode('ascii')
+        return encoded_content    
     
     def merge_nodes(self, local_nodes: List[str], remote_nodes: List[str]) -> List[str]:
         """合并本地和远程节点，并去重"""
@@ -345,9 +341,9 @@ class VlessAutomation:
             # 6. 准备上传内容
             print("\n📦 准备上传内容...")
             
-            # Base64订阅 (双重编码)
+            # Base64订阅 (单层编码)
             plain_text = "\n".join(unique_nodes)
-            base64_content = self.create_double_base64(plain_text)
+            base64_content = self.create_base64(plain_text)
             
             # YAML配置
             yaml_content = YamlGenerator.generate_clash_yaml(unique_nodes, config)
