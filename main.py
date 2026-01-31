@@ -12,6 +12,8 @@ import urllib.parse
 import re
 from datetime import datetime
 from typing import List, Tuple, Optional
+from typing import Optional, Dict
+
 
 # 导入自定义模块
 from config import config
@@ -116,7 +118,7 @@ class VlessAutomation:
         except Exception as e:
             print(f"❌ 下载异常: {e}")
             return None
-    
+            
     def upload_file(self, file_path: str, content: str, message: str) -> bool:
         """
         上传文件到GitHub
@@ -134,7 +136,7 @@ class VlessAutomation:
         print(f"内容大小: {len(content)} 字符")
         
         # 检查文件是否已存在
-        file_sha = self._get_file_sha(file_path)
+        file_info = self._get_file_info(file_path)
         
         # 检查内容是否为空
         if not content or len(content.strip()) == 0:
@@ -156,14 +158,20 @@ rules:
             print(f"❌ Base64编码失败: {e}")
             return False
         
+        # 检查内容是否发生变化
+        if file_info and file_info['content'] == encoded_content:
+            print(f"✅ 内容未变化，跳过上传: {file_path}")
+            print(f"📊 文件SHA: {file_info['sha'][:8]}... (未变化)")
+            return True
+        
         data = {
             "message": message,
             "content": encoded_content,
             "branch": config.GITHUB_BRANCH
         }
         
-        if file_sha:
-            data["sha"] = file_sha
+        if file_info:
+            data["sha"] = file_info['sha']
             print(f"📝 更新现有文件: {file_path}")
         else:
             print(f"📝 创建新文件: {file_path}")
@@ -182,7 +190,8 @@ rules:
                 print(f"✅ 上传成功: {file_path}")
                 response_data = response.json()
                 if "content" in response_data:
-                    print(f"📄 文件SHA: {response_data.get('content', {}).get('sha', 'N/A')}")
+                    new_sha = response_data.get('content', {}).get('sha', 'N/A')
+                    print(f"📄 新文件SHA: {new_sha[:8]}...")
                 return True
             else:
                 error_data = {}
@@ -212,6 +221,27 @@ rules:
             import traceback
             traceback.print_exc()
             return False
+    
+    def _get_file_info(self, file_path: str) -> Optional[Dict[str, str]]:
+        """获取文件的SHA和内容"""
+        url = f"https://api.github.com/repos/{config.GITHUB_REPO}/contents/{file_path}?ref={config.GITHUB_BRANCH}"
+        
+        try:
+            response = self.session.get(url, timeout=self.timeout)
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    'sha': data.get("sha", ""),
+                    'content': data.get("content", "").replace("\n", "")
+                }
+            else:
+                return None
+        except Exception as e:
+            print(f"⚠️ 获取文件信息失败: {e}")
+            return None   
+
+
+
     def _get_file_sha(self, file_path: str) -> Optional[str]:
         """获取文件的SHA值"""
         url = f"https://api.github.com/repos/{config.GITHUB_REPO}/contents/{file_path}?ref={config.GITHUB_BRANCH}"
@@ -385,18 +415,28 @@ rules:
             
             # 6. 准备上传内容
             print("\n📦 准备上传内容...")
-            
+             
+            # 检查是否需要上传文件
             # Base64订阅 (单层编码)
             plain_text = "\n".join(unique_nodes)
             base64_content = self.create_base64(plain_text)
             
-            # YAML配置
+            # 检查AutoNode文件是否需要更新
+            auto_node_info = self._get_file_info(config.OUTPUT_NODE_FILE)
+            yaml_info = self._get_file_info(config.OUTPUT_YAML_FILE)
+            
+            # 生成YAML配置
             yaml_content = YamlGenerator.generate_clash_yaml(unique_nodes, config)
             
             print(f"📊 内容统计:")
             print(f"  - 明文节点: {len(plain_text)} 字符")
             print(f"  - Base64订阅: {len(base64_content)} 字符")
             print(f"  - YAML配置: {len(yaml_content)} 字符")
+            
+            if auto_node_info:
+                print(f"  - AutoNode当前SHA: {auto_node_info['sha'][:8]}...")
+            if yaml_info:
+                print(f"  - YAML当前SHA: {yaml_info['sha'][:8]}...")
             
             # 7. 上传文件到GitHub
             print("\n📤 上传文件到GitHub...")
