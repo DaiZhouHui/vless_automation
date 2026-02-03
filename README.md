@@ -1,6 +1,6 @@
 # Vless节点自动化工作流
 
-这是一个自动化的Python工作流，用于每日从GitHub仓库获取CSV文件，生成Vless节点，合并去重，并上传到GitHub。
+这是一个自动化的Python工作流，用于每日从GitHub仓库获取FOFA CSV文件，生成Vless节点，合并去重，更新AutoNode并上传到GitHub。
 
 ## 功能特性
 
