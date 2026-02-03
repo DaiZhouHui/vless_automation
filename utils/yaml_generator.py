@@ -78,7 +78,7 @@ class YamlGenerator:
         try:
             port = int(port_str)
         except:
-            port = config.DEFAULT_PORT
+               port = getattr(config, 'DEFAULT_PORT', 443)
         
         # 提取备注
         remark = ""
@@ -94,6 +94,19 @@ class YamlGenerator:
                     key, value = param.split("=", 1)
                     params[key] = urllib.parse.unquote(value)
         
+        # 处理alpn参数，确保是列表格式
+        alpn_param = params.get('alpn', '')
+        if alpn_param:
+            alpn_list = [a.strip() for a in alpn_param.split(',') if a.strip()]
+        else:
+            alpn_list = ['h2', 'http/1.1']
+        
+        # 获取配置中的默认值
+        sni = params.get('sni', getattr(config, 'SNI', ''))
+        host = params.get('host', getattr(config, 'HOST', ''))
+        custom_path = params.get('path', getattr(config, 'CUSTOM_PATH', '/'))
+        fingerprint = params.get('fp', getattr(config, 'FINGERPRINT', 'chrome'))
+        
         # 构建代理信息
         proxy_info = {
             'name': remark or f"节点-{server}:{port}",
@@ -103,11 +116,11 @@ class YamlGenerator:
             'uuid': uuid,
             'network': params.get('type', 'ws'),
             'tls': params.get('security') == 'tls',
-            'sni': params.get('sni', config.SNI),
-            'host': params.get('host', config.HOST),
-            'path': params.get('path', config.CUSTOM_PATH),
-            'alpn': params.get('alpn', 'h2,http/1.1').split(','),
-            'fingerprint': params.get('fp', config.FINGERPRINT),
+            'sni': sni,
+            'host': host,
+            'path': custom_path,
+            'alpn': alpn_list,
+            'fingerprint': fingerprint,
             'udp': True,
             'skip-cert-verify': False
         }
@@ -134,103 +147,108 @@ rules:
   - MATCH,🚀 代理
 """
         
-        # 清理代理名称中的特殊字符，确保YAML安全
+        # 清理代理名称中的特殊字符
         safe_proxies = []
         safe_proxy_names = []
         
         for proxy in proxies:
-            # 创建副本以避免修改原始数据
+            # 创建副本
             safe_proxy = proxy.copy()
             
-            # 清理代理名称中的特殊字符
+            # 清理代理名称
             original_name = safe_proxy['name']
-            safe_name = "".join(c for c in original_name if c.isprintable())
+            # 移除不可打印字符
+            safe_name = ''.join(c for c in original_name if c.isprintable() or c.isspace())
             safe_name = safe_name.replace('\n', '').replace('\r', '').strip()
+            
             if not safe_name:
                 safe_name = f"节点-{safe_proxy['server']}:{safe_proxy['port']}"
+            
+            # 简化名称，移除可能导致问题的字符
+            safe_name = re.sub(r'[{}<>\[\]|&*#!%^@`~]', '', safe_name)
+            safe_name = safe_name.strip()
             
             safe_proxy['name'] = safe_name
             safe_proxies.append(safe_proxy)
             safe_proxy_names.append(safe_name)
         
-        # 代理配置部分
-        proxies_yaml = ""
+        # 代理配置部分 - 使用更安全的生成方式
+        proxies_yaml_lines = []
         for proxy in safe_proxies:
-            proxies_yaml += f"  - name: {proxy['name']}\n"
-            proxies_yaml += f"    type: {proxy['type']}\n"
-            proxies_yaml += f"    server: {proxy['server']}\n"
-            proxies_yaml += f"    port: {proxy['port']}\n"
-            proxies_yaml += f"    uuid: {proxy['uuid']}\n"
-            proxies_yaml += f"    network: {proxy['network']}\n"
-            proxies_yaml += f"    tls: {proxy['tls']}\n"
+            # 构建代理配置行
+            proxy_lines = []
+            proxy_lines.append(f"  - name: \"{proxy['name']}\"")
+            proxy_lines.append(f"    type: {proxy['type']}")
+            proxy_lines.append(f"    server: \"{proxy['server']}\"")
+            proxy_lines.append(f"    port: {proxy['port']}")
+            proxy_lines.append(f"    uuid: \"{proxy['uuid']}\"")
+            proxy_lines.append(f"    network: \"{proxy['network']}\"")
+            proxy_lines.append(f"    tls: {str(proxy['tls']).lower()}")
             
             if proxy['tls']:
-                proxies_yaml += f"    servername: {proxy['sni']}\n"
-                proxies_yaml += f"    fingerprint: {proxy['fingerprint']}\n"
-                proxies_yaml += f"    alpn: {proxy['alpn']}\n"
+                if proxy['sni']:
+                    proxy_lines.append(f"    servername: \"{proxy['sni']}\"")
+                if proxy['fingerprint']:
+                    proxy_lines.append(f"    fingerprint: \"{proxy['fingerprint']}\"")
+                
+                # 正确处理alpn为列表格式
+                if proxy.get('alpn') and isinstance(proxy['alpn'], list):
+                    proxy_lines.append(f"    alpn:")
+                    for alpn_item in proxy['alpn']:
+                        # 清理alpn项目
+                        alpn_item = alpn_item.strip()
+                        if alpn_item:
+                            proxy_lines.append(f"      - \"{alpn_item}\"")
             
             if proxy['network'] == 'ws':
-                proxies_yaml += f"    ws-opts:\n"
-                proxies_yaml += f"      path: \"{proxy['path']}\"\n"
-                proxies_yaml += f"      headers:\n"
-                proxies_yaml += f"        Host: \"{proxy['host']}\"\n"
+                proxy_lines.append(f"    ws-opts:")
+                proxy_lines.append(f"      path: \"{proxy['path']}\"")
+                proxy_lines.append(f"      headers:")
+                proxy_lines.append(f"        Host: \"{proxy['host']}\"")
             
-            proxies_yaml += f"    udp: {proxy['udp']}\n"
-            proxies_yaml += f"    skip-cert-verify: {proxy['skip-cert-verify']}\n"
-            proxies_yaml += "\n"
+            proxy_lines.append(f"    udp: {str(proxy['udp']).lower()}")
+            proxy_lines.append(f"    skip-cert-verify: {str(proxy['skip-cert-verify']).lower()}")
+            proxy_lines.append("")  # 空行分隔
+            
+            proxies_yaml_lines.extend(proxy_lines)
+        
+        proxies_yaml = '\n'.join(proxies_yaml_lines)
         
         # 代理名称列表
-        proxy_names_yaml = ""
+        proxy_names_yaml_lines = []
         for name in safe_proxy_names:
-            proxy_names_yaml += f"      - {name}\n"
+            proxy_names_yaml_lines.append(f"      - \"{name}\"")
+        proxy_names_yaml = '\n'.join(proxy_names_yaml_lines)
         
-        # 完整的YAML模板
-        yaml_template = f"""mixed-port: 7890
+        # 生成时间戳
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 构建完整YAML - 使用更简单的模板
+        yaml_template = f"""# Clash 配置
+# 生成时间: {timestamp}
+# 节点数量: {len(safe_proxies)}
+
+mixed-port: 7890
 socks-port: 7891
-redir-port: 7892
-tproxy-port: 7895
 allow-lan: true
-bind-address: '*'
 mode: rule
 log-level: info
-ipv6: false
 external-controller: 127.0.0.1:9090
-external-ui: dashboard
-secret: ""
-dns:
-  enable: true
-  ipv6: false
-  listen: 0.0.0.0:53
-  enhanced-mode: redir-host
-  nameserver:
-    - 8.8.8.8
-    - 114.114.114.114
-    - 223.5.5.5
-  fallback:
-    - 1.1.1.1
-    - 8.8.4.4
-  fallback-filter:
-    geoip: true
-    geoip-code: CN
-    ipcidr:
-      - 240.0.0.0/4
 
 proxies:
-{proxies_yaml.strip()}
+{proxies_yaml}
 
 proxy-groups:
   - name: 🚀 节点选择
     type: select
     proxies:
-{proxy_names_yaml.strip()}
+{proxy_names_yaml}
   - name: ♻️ 自动选择
     type: url-test
     url: http://www.gstatic.com/generate_204
     interval: 300
-    tolerance: 50
-    lazy: true
     proxies:
-{proxy_names_yaml.strip()}
+{proxy_names_yaml}
   - name: 📲 国外媒体
     type: select
     proxies:
@@ -260,8 +278,66 @@ rules:
   - MATCH,🚀 节点选择
 """
         
-        # 确保YAML是有效的UTF-8
-        return yaml_template.encode('utf-8', 'ignore').decode('utf-8')
+        # 验证YAML格式
+        return YamlGenerator._validate_yaml(yaml_template)
+    
+    @staticmethod
+    def _validate_yaml(yaml_content: str) -> str:
+        """验证和修复YAML格式"""
+        lines = yaml_content.strip().split('\n')
+        validated_lines = []
+        
+        # 修复alpn列表缩进
+        in_alpn_list = False
+        alpn_indent = 0
+        
+        for i, line in enumerate(lines, 1):
+            line = line.rstrip()
+            
+            # 跳过空行
+            if not line.strip():
+                validated_lines.append('')
+                in_alpn_list = False
+                continue
+            
+            # 检查是否进入或退出alpn列表
+            if 'alpn:' in line and not line.strip().startswith('#'):
+                in_alpn_list = True
+                alpn_indent = len(line) - len(line.lstrip())
+                validated_lines.append(line)
+                continue
+            elif in_alpn_list and (len(line) - len(line.lstrip())) <= alpn_indent:
+                in_alpn_list = False
+            
+            # 检查行格式
+            if ':' in line and not in_alpn_list:
+                # 统计前导空格
+                leading_spaces = len(line) - len(line.lstrip())
+                indent = ' ' * leading_spaces
+                
+                key_value = line.split(':', 1)
+                key = key_value[0].strip()
+                value = key_value[1].strip() if len(key_value) > 1 else ""
+                
+                # 重建行
+                if value:
+                    # 检查值是否需要引号
+                    if any(char in value for char in ':[]{}#&*!|>\\%@`\''):
+                        # 转义值中的双引号
+                        value = value.replace('"', '\\"')
+                        line = f"{indent}{key}: \"{value}\""
+                    else:
+                        line = f"{indent}{key}: {value}"
+                else:
+                    line = f"{indent}{key}:"
+            
+            validated_lines.append(line)
+        
+        # 确保最后一行不为空
+        while validated_lines and not validated_lines[-1].strip():
+            validated_lines.pop()
+        
+        return '\n'.join(validated_lines)
     
     @staticmethod
     def _generate_empty_yaml() -> str:
